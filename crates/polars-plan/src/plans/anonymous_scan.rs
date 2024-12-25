@@ -6,6 +6,16 @@ use polars_core::prelude::*;
 pub use super::options::AnonymousScanOptions;
 use crate::dsl::Expr;
 
+pub struct AnonymousDataChunk {
+    pub chunk_index: IdxSize,
+    pub data: DataFrame,
+}
+
+pub enum AnonymousSourceResult {
+    Finished,
+    GotMoreData(Vec<AnonymousDataChunk>)
+}
+
 pub struct AnonymousScanArgs {
     pub n_rows: Option<usize>,
     pub with_columns: Option<Arc<[PlSmallStr]>>,
@@ -21,7 +31,7 @@ pub trait AnonymousScan: Send + Sync {
 
     /// Produce the next batch Polars can consume. Implement this method to get proper
     /// streaming support.
-    fn next_batch(&self, scan_opts: AnonymousScanArgs) -> PolarsResult<Option<DataFrame>> {
+    fn get_batches(&self, scan_opts: AnonymousScanArgs) -> PolarsResult<AnonymousSourceResult> {
         self.scan(scan_opts).map(Some)
     }
 
@@ -47,6 +57,18 @@ pub trait AnonymousScan: Send + Sync {
     /// Defaults to `false`
     fn allows_slice_pushdown(&self) -> bool {
         false
+    }
+    /// Specify if the scan can stream batches.
+    /// Requires the implementation of `next_batch`.
+    ///
+    /// Defaults to `false`
+    fn streamable(&self) -> bool {
+        false
+    }
+    /// Specify a custom name for the anonymous reader.
+    /// Defaults to `"anonymous_scan"`.
+    fn fmt(&self) -> &str {
+        "anonymous_scan"
     }
 }
 
