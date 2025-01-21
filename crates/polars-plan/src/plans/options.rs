@@ -284,7 +284,6 @@ pub enum PythonPredicate {
 #[derive(Clone, PartialEq, Eq, Debug, Default, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct AnonymousScanOptions {
-    pub skip_rows: Option<usize>,
     pub fmt_str: &'static str,
 }
 

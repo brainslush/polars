@@ -12,13 +12,13 @@ pub struct AnonymousDataChunk {
 
 pub enum AnonymousSourceResult {
     Finished,
-    GotMoreData(Vec<AnonymousDataChunk>)
+    GotMoreData(Vec<AnonymousDataChunk>),
 }
 
 pub struct AnonymousScanArgs {
     pub n_rows: Option<usize>,
     pub with_columns: Option<Arc<[PlSmallStr]>>,
-    pub schema: SchemaRef,
+    pub schema: Arc<SchemaRef>,
     pub output_schema: Option<SchemaRef>,
     pub predicate: Option<Expr>,
 }
@@ -28,10 +28,14 @@ pub trait AnonymousScan: Send + Sync {
     /// Creates a DataFrame from the supplied function & scan options.
     fn scan(&self, scan_opts: AnonymousScanArgs) -> PolarsResult<DataFrame>;
 
+    /// function which gets called before the first batches are collected, Implement this
+    /// function and next_batches to get proper streaming support.
+    fn init_batched_scan(&self, scan_opts: AnonymousScanArgs) -> PolarsResult<()> {Ok(())}
+
     /// Produce the next batch Polars can consume. Implement this method to get proper
     /// streaming support.
-    fn get_batches(&self, scan_opts: AnonymousScanArgs) -> PolarsResult<AnonymousSourceResult> {
-        self.scan(scan_opts).map(Some)
+    fn next_batches(&self) -> PolarsResult<AnonymousSourceResult> {
+        Ok(AnonymousSourceResult::Finished{})
     }
 
     /// function to supply the schema.

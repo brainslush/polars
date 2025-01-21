@@ -37,6 +37,64 @@ where
         .collect()
 }
 
+fn predicate_to_operation<F>(
+    operator_objects: &mut Vec<Box<dyn Operator>>,
+    expr_arena: &Arena<AExpr>,
+    to_physical: &F,
+    predicate: Option<ExprIR>,
+    schema: &SchemaRef,
+) -> PolarsResult<()>
+where
+    F: Fn(&ExprIR, &Arena<AExpr>, &SchemaRef) -> PolarsResult<Arc<dyn PhysicalPipedExpr>>,
+{
+    if let Some(predicate) = predicate {
+        let predicate = to_physical(&predicate, expr_arena, &schema)?;
+        let op = operators::FilterOperator { predicate };
+        let op = Box::new(op) as Box<dyn Operator>;
+        operator_objects.push(op)
+    }
+    Ok(())
+}
+
+fn prepare_predicate_for_source<F>(
+    predicate: Option<ExprIR>,
+    expr_arena: &Arena<AExpr>,
+    schema: &SchemaRef,
+    to_physical: &F,
+) -> PolarsResult<Option<Arc<dyn PhysicalIoExpr>>>
+where
+    F: Fn(&ExprIR, &Arena<AExpr>, &SchemaRef) -> PolarsResult<Arc<dyn PhysicalPipedExpr>>,
+{
+    let predicate = predicate
+        .as_ref()
+        .map(|predicate| {
+            let p = to_physical(predicate, expr_arena, schema)?;
+            // Arc's all the way down. :(
+            // Temporarily until: https://github.com/rust-lang/rust/issues/65991
+            // stabilizes
+            struct Wrap {
+                p: Arc<dyn PhysicalPipedExpr>,
+            }
+            impl PhysicalIoExpr for Wrap {
+                fn evaluate_io(&self, df: &DataFrame) -> PolarsResult<Series> {
+                    self.p.evaluate_io(df)
+                }
+
+                fn live_variables(&self) -> Option<Vec<PlSmallStr>> {
+                    None
+                }
+
+                fn as_stats_evaluator(&self) -> Option<&dyn StatsEvaluator> {
+                    self.p.as_stats_evaluator()
+                }
+            }
+
+            PolarsResult::Ok(Arc::new(Wrap { p }) as Arc<dyn PhysicalIoExpr>)
+        })
+        .transpose()?;
+    Ok(predicate)
+}
+
 #[allow(unused_variables)]
 fn get_source<F>(
     source: IR,
@@ -62,12 +120,13 @@ where
                 .clone()
                 .unwrap_or_else(|| Arc::new(df.schema()));
             if push_predicate {
-                if let Some(predicate) = selection {
-                    let predicate = to_physical(&predicate, expr_arena, &schema)?;
-                    let op = operators::FilterOperator { predicate };
-                    let op = Box::new(op) as Box<dyn Operator>;
-                    operator_objects.push(op)
-                }
+                predicate_to_operation(
+                    operator_objects,
+                    expr_arena,
+                    to_physical,
+                    selection,
+                    &schema,
+                )?;
                 // projection is free
                 if let Some(schema) = output_schema {
                     let columns = schema.iter_names_cloned().collect::<Vec<_>>();
@@ -89,20 +148,30 @@ where
             let schema = output_schema.as_ref().unwrap_or(&file_info.schema);
 
             // Add predicate to operators.
-            // Except for parquet, as that format can use statistics to prune file/row-groups.
+            // Except for parquet and anonymous scan if possibles.
+            // parquet can use statistics to prune file/row-groups.
+            // Anonymous scan can allow predicate pushdown.
             #[cfg(feature = "parquet")]
             let is_parquet = matches!(scan_type, FileScan::Parquet { .. });
-            #[cfg(not(feature = "parquet"))]
+            //#[cfg(not(feature = "parquet"))]
             let is_parquet = false;
 
-            if let (false, true, Some(predicate)) = (is_parquet, push_predicate, predicate.clone())
-            {
+            let can_pushdown_predicate = is_parquet
+                || matches!(scan_type, FileScan::Anonymous{options, function} if function.allows_predicate_pushdown() );
+
+            if (false, true) == (can_pushdown_predicate, push_predicate) {
                 #[cfg(feature = "parquet")]
                 debug_assert!(!matches!(scan_type, FileScan::Parquet { .. }));
-                let predicate = to_physical(&predicate, expr_arena, schema)?;
-                let op = operators::FilterOperator { predicate };
-                let op = Box::new(op) as Box<dyn Operator>;
-                operator_objects.push(op)
+                debug_assert!(
+                    !matches!(scan_type, FileScan::Anonymous {options, function} if function.allows_predicate_pushdown())
+                );
+                predicate_to_operation(
+                    operator_objects,
+                    expr_arena,
+                    to_physical,
+                    predicate.clone(),
+                    schema,
+                )?;
             }
             match scan_type {
                 #[cfg(feature = "csv")]
@@ -122,33 +191,8 @@ where
                     cloud_options,
                     metadata,
                 } => {
-                    let predicate = predicate
-                        .as_ref()
-                        .map(|predicate| {
-                            let p = to_physical(predicate, expr_arena, schema)?;
-                            // Arc's all the way down. :(
-                            // Temporarily until: https://github.com/rust-lang/rust/issues/65991
-                            // stabilizes
-                            struct Wrap {
-                                p: Arc<dyn PhysicalPipedExpr>,
-                            }
-                            impl PhysicalIoExpr for Wrap {
-                                fn evaluate_io(&self, df: &DataFrame) -> PolarsResult<Series> {
-                                    self.p.evaluate_io(df)
-                                }
-
-                                fn live_variables(&self) -> Option<Vec<PlSmallStr>> {
-                                    None
-                                }
-
-                                fn as_stats_evaluator(&self) -> Option<&dyn StatsEvaluator> {
-                                    self.p.as_stats_evaluator()
-                                }
-                            }
-
-                            PolarsResult::Ok(Arc::new(Wrap { p }) as Arc<dyn PhysicalIoExpr>)
-                        })
-                        .transpose()?;
+                    let predicate =
+                        prepare_predicate_for_source(predicate, expr_arena, schema, to_physical)?;
                     let src = sources::ParquetSource::new(
                         sources,
                         parquet_options,
@@ -163,9 +207,16 @@ where
                     Ok(Box::new(src) as Box<dyn Source>)
                 },
                 FileScan::Anonymous { options, function } => {
+                    let predicate = if function.allows_predicate_pushdown() {
+                        prepare_predicate_for_source(predicate, expr_arena, schema, to_physical)?
+                    } else {
+                        None
+                    };
+                    let schema = file_info.schema.clone();
+                    let output_schema = output_schema.clone();
                     let src = sources::AnonymousSource::new(options, function)?;
                     Ok(Box::new(src) as Box<dyn Source>)
-                }
+                },
                 _ => todo!(),
             }
         },

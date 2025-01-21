@@ -40,8 +40,15 @@ impl DslBuilder {
         };
 
         let file_info = FileInfo::new(schema.clone(), None, (n_rows, n_rows.unwrap_or(usize::MAX)));
+        let slice = match (skip_rows, n_rows) {
+            (Some(a), Some(b)) => Some((a as i64, a+b)),
+            (Some(a), None) => Some((a as i64, usize::MAX)),
+            (None, Some(b)) => Some((0, b)),
+            _ => None
+        };
+
         let file_options = FileScanOptions {
-            slice: n_rows.map(|x| (0, x)),
+            slice,
             with_columns: None,
             cache: false,
             row_index: None,
@@ -65,7 +72,6 @@ impl DslBuilder {
                 function,
                 options: Arc::new(AnonymousScanOptions {
                     fmt_str: name,
-                    skip_rows,
                 }),
             },
             cached_ir: Default::default(),

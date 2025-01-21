@@ -21,7 +21,6 @@ impl LateMaterializedDataFrame {
 
     pub fn as_ir_node(self: Arc<Self>, schema: Arc<Schema>) -> IR {
         let options = Arc::new(AnonymousScanOptions {
-            skip_rows: None,
             fmt_str: "LateMaterializedDataFrame",
         });
         IR::Scan {
