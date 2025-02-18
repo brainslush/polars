@@ -4,38 +4,39 @@ use polars_core::prelude::*;
 use polars_core::POOL;
 use polars_io::predicates::PhysicalIoExpr;
 use polars_plan::plans::expr_ir::ExprIR;
-use polars_plan::plans::{AnonymousScan, AnonymousScanArgs, AnonymousSourceResult, AnonymousDataChunk};
-
-use crate::operators::{PExecutionContext, Source, SourceResult};
+use polars_plan::plans::{
+    AnonymousScanArgs, AnonymousDataChunk, AnonymousScan, AnonymousScanArgs,
+    AnonymousSourceResult,
+};
 
 use super::DataChunk;
+use crate::operators::{PExecutionContext, Source, SourceResult};
 
 pub struct AnonymousSource {
     function: Arc<dyn AnonymousScan>,
-    predicate: Option<Arc<dyn PhysicalIoExpr>>,
-    n_threads: usize,
-    scan_arguments: AnonymousScanArgs,
+    scan_args: AnonymousScanArgs,
 }
 
 impl AnonymousSource {
     pub fn new(
         function: Arc<dyn AnonymousScan>,
-        predicate: Option<ExprIR>,
-        slice: Option<(usize, usize)>,
-    ) -> Self {
-        function.init_batched_scan(scan_opts)
+        scan_args: AnonymousScanArgs,
+    ) -> PolarsResult<Self> {
+        function.as_ref().init_batched_scan(scan_args)?;
 
-        Self {
+        Ok(Self {
             function,
-            predicate,
-            n_threads: POOL.current_num_threads(),
-        }
+            scan_args,
+        })
     }
 }
 
 impl Into<DataChunk> for AnonymousDataChunk {
     fn into(self) -> DataChunk {
-        DataChunk{chunk_index: self.chunk_index, data: self.data}
+        DataChunk {
+            chunk_index: self.chunk_index,
+            data: self.data,
+        }
     }
 }
 

@@ -40,7 +40,7 @@ pub enum FileScan {
     },
     #[cfg_attr(feature = "serde", serde(skip))]
     Anonymous {
-        options: Arc<AnonymousScanOptions>,
+        options: AnonymousScanOptions,
         function: Arc<dyn AnonymousScan>,
     },
 }

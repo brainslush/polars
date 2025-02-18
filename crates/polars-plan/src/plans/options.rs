@@ -281,12 +281,6 @@ pub enum PythonPredicate {
     None,
 }
 
-#[derive(Clone, PartialEq, Eq, Debug, Default, Hash)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct AnonymousScanOptions {
-    pub fmt_str: &'static str,
-}
-
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum SinkType {

@@ -16,33 +16,63 @@ pub enum AnonymousSourceResult {
 }
 
 pub struct AnonymousScanArgs {
-    pub n_rows: Option<usize>,
-    pub with_columns: Option<Arc<[PlSmallStr]>>,
-    pub schema: Arc<SchemaRef>,
+    pub schema: SchemaRef,
     pub output_schema: Option<SchemaRef>,
+    pub skip_rows: Option<usize>,
+    pub n_rows: Option<usize>,
     pub predicate: Option<Expr>,
+}
+
+impl AnonymousScanArgs {
+    pub fn new(schema: SchemaRef) -> Self {
+        Self {
+            schema,
+            output_schema: None,
+            skip_rows: None,
+            n_rows: None,
+            predicate: None,
+        }
+    }
+    pub fn with_output_schema(mut self, output_schema: SchemaRef) -> Self {
+        self.output_schema = Some(output_schema);
+        self
+    }
+    pub fn with_skip_rows(mut self, skip_rows: usize) -> Self {
+        self.skip_rows = Some(skip_rows);
+        self
+    }
+    pub fn with_n_rows(mut self, n_rows: usize) -> Self {
+        self.n_rows = Some(n_rows);
+        self
+    }
+    pub fn with_predicate(mut self, predicate: Expr) -> Self {
+        self.predicate = Some(predicate);
+        self
+    }
 }
 
 pub trait AnonymousScan: Send + Sync {
     fn as_any(&self) -> &dyn Any;
+
     /// Creates a DataFrame from the supplied function & scan options.
     fn scan(&self, scan_opts: AnonymousScanArgs) -> PolarsResult<DataFrame>;
 
+    /// function to supply the schema.
+    /// Allows for an optional infer schema argument for data sources with dynamic schemas
+    fn schema(&self, _infer_schema_length: Option<usize>) -> PolarsResult<SchemaRef>;
+
     /// function which gets called before the first batches are collected, Implement this
     /// function and next_batches to get proper streaming support.
-    fn init_batched_scan(&self, scan_opts: AnonymousScanArgs) -> PolarsResult<()> {Ok(())}
+    fn init_batched_scan(&self, _scan_opts: AnonymousScanArgs) -> PolarsResult<()> {
+        Ok(())
+    }
 
     /// Produce the next batch Polars can consume. Implement this method to get proper
     /// streaming support.
     fn next_batches(&self) -> PolarsResult<AnonymousSourceResult> {
-        Ok(AnonymousSourceResult::Finished{})
+        Ok(AnonymousSourceResult::Finished {})
     }
 
-    /// function to supply the schema.
-    /// Allows for an optional infer schema argument for data sources with dynamic schemas
-    fn schema(&self, _infer_schema_length: Option<usize>) -> PolarsResult<SchemaRef> {
-        polars_bail!(ComputeError: "must supply either a schema or a schema function");
-    }
     /// Specify if the scan provider should allow predicate pushdowns.
     ///
     /// Defaults to `false`
