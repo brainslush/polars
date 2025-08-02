@@ -206,7 +206,7 @@ where
                     )?;
                     Ok(Box::new(src) as Box<dyn Source>)
                 },
-                FileScan::Anonymous {function } => {
+                FileScan::Anonymous { function } => {
                     let predicate = if function.allows_predicate_pushdown() {
                         prepare_predicate_for_source(predicate, expr_arena, schema, to_physical)?
                     } else {

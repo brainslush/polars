@@ -410,7 +410,7 @@ impl ProjectionPushDown {
                 mut output_schema,
             } => {
                 let do_optimization = match scan_type {
-                    FileScan::Anonymous { ref function, .. } => {
+                    FileScan::Anonymous {ref function, .. } => {
                         function.allows_projection_pushdown()
                     },
                     #[cfg(feature = "json")]

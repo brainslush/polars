@@ -32,6 +32,9 @@ impl DslBuilder {
         infer_schema_length: Option<usize>,
         skip_rows: Option<usize>,
         n_rows: Option<usize>,
+        row_index: Option<RowIndex>,
+        rechunk: bool,
+        cache: bool,
         name: &'static str,
     ) -> PolarsResult<Self> {
         let schema = match schema {
@@ -40,19 +43,13 @@ impl DslBuilder {
         };
 
         let file_info = FileInfo::new(schema.clone(), None, (n_rows, n_rows.unwrap_or(usize::MAX)));
-        let slice = match (skip_rows, n_rows) {
-            (Some(a), Some(b)) => Some((a as i64, a + b)),
-            (Some(a), None) => Some((a as i64, usize::MAX)),
-            (None, Some(b)) => Some((0, b)),
-            _ => None,
-        };
 
         let file_options = FileScanOptions {
-            slice,
             with_columns: None,
-            cache: false,
-            row_index: None,
-            rechunk: false,
+            cache,
+            slice: n_rows.map(|x| (0, x)),
+            rechunk,
+            row_index,
             file_counter: Default::default(),
             // TODO: Support Hive partitioning.
             hive_options: HiveOptions {
@@ -70,6 +67,7 @@ impl DslBuilder {
             file_options,
             scan_type: FileScan::Anonymous {
                 function,
+                options: AnonymousScanOptions { fmt_str: name },
             },
             cached_ir: Default::default(),
         }

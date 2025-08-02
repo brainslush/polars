@@ -5,8 +5,7 @@ use polars_core::POOL;
 use polars_io::predicates::PhysicalIoExpr;
 use polars_plan::plans::expr_ir::ExprIR;
 use polars_plan::plans::{
-    AnonymousScanArgs, AnonymousDataChunk, AnonymousScan, AnonymousScanArgs,
-    AnonymousSourceResult,
+    AnonymousDataChunk, AnonymousScan, AnonymousScanArgs, AnonymousScanArgs, AnonymousSourceResult,
 };
 
 use super::DataChunk;
